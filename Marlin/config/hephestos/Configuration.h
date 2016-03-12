@@ -14,7 +14,7 @@
 #define FIRMWARE_URL "http://www.bq.com/gb/support/prusa"
 #define SOURCE_CODE_URL "http://github.com/bq/Marlin"
 #define FIRMWARE_VER "2.1.0"
-#define BUILD_VER ""
+#define BUILD_VER "#1"
 
 #define STRING_VERSION_CONFIG_H __DATE__ " " __TIME__ // build date and time
 
@@ -60,7 +60,7 @@
 // #define PS_DEFAULT_OFF
 
 // Define this to have hotbed support
-//#define HEATED_BED_SUPPORT
+#define HEATED_BED_SUPPORT
 
 //===========================================================================
 //============================= Thermal Settings ============================
@@ -169,9 +169,9 @@
 
 // If you are using a pre-configured hotend then you can use one of the value sets by uncommenting it
 // Hephestos (i3)
-    #define  DEFAULT_Kp 23.05
-    #define  DEFAULT_Ki 2.00
-    #define  DEFAULT_Kd 66.47
+//    #define  DEFAULT_Kp 23.05
+//    #define  DEFAULT_Ki 2.00
+//    #define  DEFAULT_Kd 66.47
 
 // MakerGear
 //    #define  DEFAULT_Kp 7.0
@@ -182,6 +182,11 @@
 //    #define  DEFAULT_Kp 63.0
 //    #define  DEFAULT_Ki 2.25
 //    #define  DEFAULT_Kd 440
+
+// Hephestos (i3) - S/N: HA002261 - Calibrated using "M303 E0 S210 C8"
+    #define  DEFAULT_Kp 34.44
+    #define  DEFAULT_Ki 5.63
+    #define  DEFAULT_Kd 52.69
 #endif // PIDTEMP
 
 //===========================================================================
@@ -546,7 +551,7 @@ const bool Z_PROBE_ENDSTOP_INVERTING = true; // set to true to invert the logic 
 
 // Preheat Constants
 #define PLA_PREHEAT_HOTEND_TEMP 200
-#define PLA_PREHEAT_HPB_TEMP 0
+#define PLA_PREHEAT_HPB_TEMP 60
 #define PLA_PREHEAT_FAN_SPEED 255   // Insert Value between 0 and 255
 
 #define ABS_PREHEAT_HOTEND_TEMP 220
