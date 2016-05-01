@@ -490,6 +490,7 @@ void enquecommand(const char *cmd)
   {
     //this is dangerous if a mixing of serial and this happens
     strcpy(&(cmdbuffer[bufindw][0]),cmd);
+    fromsd[bufindw] = true;
     SERIAL_ECHO_START;
     SERIAL_ECHOPGM(MSG_Enqueueing);
     SERIAL_ECHO(cmdbuffer[bufindw]);
@@ -505,6 +506,7 @@ void enquecommand_P(const char *cmd)
   {
     //this is dangerous if a mixing of serial and this happens
     strcpy_P(&(cmdbuffer[bufindw][0]),cmd);
+    fromsd[bufindw] = true;
     SERIAL_ECHO_START;
     SERIAL_ECHOPGM(MSG_Enqueueing);
     SERIAL_ECHO(cmdbuffer[bufindw]);
@@ -515,14 +517,31 @@ void enquecommand_P(const char *cmd)
 }
 
 // Discard all gcodes enqueued in the gcode-buffer
-void flush_commands()
+uint8_t flush_commands()
 {
-   bufindr = bufindw;
-   buflen = 0;
+	uint8_t num_ok = 0;
+	uint8_t initial_com = 0;
+	if(bufindr+buflen > BUFSIZE)
+	{
+		initial_com = bufindr+buflen - BUFSIZE;
+	}
+   
    for (int i=0; i<BUFSIZE; i++)
    {
-    memset(cmdbuffer[i], 0,MAX_CMD_SIZE);
+	   if(i < initial_com || (i >= bufindr && i < bufindr+buflen))
+	   {
+		   if(fromsd[i]==false)
+		   {
+			   ++num_ok;
+		   }
+	   }
+	   memset(cmdbuffer[i], 0,MAX_CMD_SIZE);
    }
+   
+   bufindr = bufindw;
+   buflen = 0;
+   
+   return num_ok;
 }
 
 void setup_killpin()
@@ -615,6 +634,8 @@ void setup()
   setup_killpin();
   setup_powerhold();
   MYSERIAL.begin(BAUDRATE);
+  delay(10);
+  SERIAL_ECHOLN("");
   SERIAL_PROTOCOLLNPGM("start");
   SERIAL_ECHO_START;
 
@@ -785,6 +806,7 @@ void loop()
         {
           card.closefile();
           SERIAL_PROTOCOLLNPGM(MSG_FILE_SAVED);
+          SERIAL_PROTOCOLLNPGM(MSG_OK);
         }
       }
       else
@@ -811,13 +833,17 @@ void loop()
 
 void get_command()
 {
-  while( !card.sdprinting && MYSERIAL.available() > 0  && buflen < BUFSIZE) {
+  while( MYSERIAL.available() > 0  && buflen < BUFSIZE) {
     serial_char = MYSERIAL.read();
 
-#ifdef DOGLCD
+    if(serial_char == '\n' ||
+       serial_char == '\r' ||
+       serial_count >= (MAX_CMD_SIZE - 1) )
+    {
+	#ifdef DOGLCD
 		if ( SerialManager::single::instance().state() &&
-		     PrintManager::single::instance().state() != SERIAL_CONTROL &&
-		     PrintManager::single::instance().state() != INITIALIZING )
+			 PrintManager::single::instance().state() != SERIAL_CONTROL &&
+			 PrintManager::single::instance().state() != INITIALIZING )
 		{
 			if (ui::ViewManager::getInstance().getViewIndex() == ui::screen_main)
 			{
@@ -825,12 +851,8 @@ void get_command()
 				ui::ViewManager::getInstance().activeView(ui::screen_serial);
 			}
 		}
-#endif
-
-    if(serial_char == '\n' ||
-       serial_char == '\r' ||
-       serial_count >= (MAX_CMD_SIZE - 1) )
-    {
+	#endif
+		
       // end of line == end of comment
       comment_mode = false;
 
@@ -959,10 +981,30 @@ void get_command()
         if(!comment_mode) cmdbuffer[bufindw][serial_count++] = serial_char;
     }
   }
+  
   #ifdef SDSUPPORT
-  if(!card.sdprinting || serial_count!=0){
+  if(!card.sdprinting)
+  { 
     return;
+  } 
+  
+  static uint8_t last_serial_count = 0;
+  
+  if(serial_count > 0) 
+  {
+    if(serial_count == last_serial_count)
+	{
+		serial_count = 0;
+	}
+	else
+	{
+		last_serial_count = serial_count;
+		// give partial serial data a chance to complete
+		return;
+	}
   }
+
+  last_serial_count = 0;
 
   //'#' stops reading from SD to the buffer prematurely, so procedural macro calls are possible
   // if it occurs, stop_buffering is triggered and the buffer is ran dry.
@@ -1010,7 +1052,10 @@ void get_command()
 #ifdef DOGLCD
     PrintManager::endPrint();
 #endif
-    SERIAL_PROTOCOLLNPGM(MSG_FILE_PRINTED);
+	if(card.isFileOpen())
+	{
+		SERIAL_PROTOCOLLNPGM(MSG_FILE_PRINTED);
+	}
     stoptime=millis();
     char time[30];
     unsigned long t=(stoptime-starttime)/1000;
@@ -1610,7 +1655,7 @@ void process_commands()
 
     case 28: //G28 Home all Axis one at a time
 #ifdef DOGLCD
-      if ( (PrintManager::single::instance().state() != PRINTING && AutoLevelManager::single::instance().state() == false) || allow_home == true )
+      if ( PrintManager::single::instance().state() != PRINTING || allow_home == true )
 #endif //DOGLCD
       {
         allow_home = false;
@@ -1619,10 +1664,15 @@ void process_commands()
     break;
 #ifdef LEVEL_SENSOR
     case 29: // G29 Detailed Z-Probe, probes the bed at 3 or more points.
-      if (bed_leveling == true || (bed_leveling == false && AutoLevelManager::single::instance().state() == true))
-      {
-        action_get_plane();
-      }
+#ifdef DOGLCD
+	  if ( PrintManager::single::instance().state() != PRINTING )
+#endif //DOGLCD
+	  {
+		  if (bed_leveling == true || (bed_leveling == false && AutoLevelManager::single::instance().state() == true))
+		  {
+			action_get_plane();
+		  }
+	  }
     break;
 #ifndef Z_PROBE_SLED
 
@@ -1759,18 +1809,29 @@ void process_commands()
     case 23: //M23 - Select file
       starpos = (strchr(strchr_pointer + 4,'*'));
       if(starpos!=NULL)
+      {
+		  if(*(starpos-1) == ' ') //solve repetier format problem
+		  {
+			SERIAL_ECHOLN("wrong file format");
+			starpos--;
+		  }
         *(starpos)='\0';
+       }
       card.openFile(strchr_pointer + 4,true);
       break;
     case 24: //M24 - Start SD print
 #ifdef DOGLCD
-      if(PrintManager::single::instance().state() == READY)
-      {
-        card.startFileprint();
-        starttime=millis();
-        feedmultiply = 100;
-        PrintManager::single::instance().state(PRINTING);
-      }
+	  if( PrintManager::single::instance().state() == READY || ( PrintManager::single::instance().state() == SERIAL_CONTROL && card.isFileAtBegin() ))
+	  {
+		card.startFileprint();
+		starttime=millis();
+		feedmultiply = 100;
+		PrintManager::single::instance().state(PRINTING);
+	  }
+      else if(PrintManager::single::instance().state() == SERIAL_CONTROL && card.isFileAtBegin() == false)
+	  {
+	    action_resume_print();
+	  }
 #else
       card.startFileprint();
       starttime=millis();
@@ -1824,6 +1885,12 @@ void process_commands()
 				LCD_MESSAGEPGM(MSG_PAUSED);
 				lcd_update();
 				lcd_enable_button();
+#ifdef DOGLCD				
+		if( PrintManager::single::instance().state() == SERIAL_CONTROL)
+		{
+			stop_buffer = false;
+		}
+#endif //DOGLCD
 
 #ifndef DOGLCD
   			while(!LCD_CLICKED){
@@ -3968,7 +4035,7 @@ case 404:  //M404 Enter the nominal filament width (3mm, 1.75mm ) N<3.0> or disp
 
 #ifdef DOGLCD
     case 800:
-      if(card.isFileOpen() == false)
+      if( card.isFileOpen() == false || (card.isFileOpen() == true && PrintManager::single::instance().state() == SERIAL_CONTROL) )
       {
         action_start_print();
       }
@@ -3977,7 +4044,7 @@ case 404:  //M404 Enter the nominal filament width (3mm, 1.75mm ) N<3.0> or disp
     case 801:
       st_synchronize();
 
-      if(card.isFileOpen() == false)
+      if( card.isFileOpen() == false || (card.isFileOpen() == true && PrintManager::single::instance().state() == SERIAL_CONTROL) )
       {
         action_finish_print();
       }

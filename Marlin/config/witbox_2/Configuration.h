@@ -11,7 +11,7 @@
 #define MACHINE_NAME "Witbox 2"
 #define FIRMWARE_URL "http://www.bq.com/gb/support/prusa"
 #define SOURCE_CODE_URL "http://github.com/bq/Marlin"
-#define FIRMWARE_VER "2.1.0"
+#define FIRMWARE_VER "2.2.0"
 #define BUILD_VER ""
 #define STRING_VERSION_CONFIG_H __DATE__ " " __TIME__ // build date and time
 
@@ -503,6 +503,9 @@ const bool Z_MAX_ENDSTOP_INVERTING = true; // set to true to invert the logic of
 
 // BQ SMART FULL GRAPHIC CONTROLLER
 #define BQ_LCD_SMART_CONTROLLER
+
+// Support for Toshiba Flashair SD cards
+#define FLASH_AIR
 
 //automatic expansion
 #if defined (REPRAP_DISCOUNT_FULL_GRAPHIC_SMART_CONTROLLER)

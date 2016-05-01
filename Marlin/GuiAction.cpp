@@ -114,10 +114,10 @@ void action_filament_load()
 	st_synchronize();
 }
 
+uint8_t level_plate_step = 0;
+
 void action_level_plate()
 {
-	static uint8_t level_plate_step = 0;
-
 	#ifndef ABL_MANUAL_PT_4_X
 		uint8_t max_steps = 4;
 		uint8_t order[4] = {0,1,2,4};
@@ -243,6 +243,12 @@ void action_level_plate()
 void gui_action_homing()
 {
 	action_homing();
+#ifdef BED_DETECTION
+	if(PrintManager::single::instance().getBedMissingFlag() == true)
+	{
+		return;
+	}
+#endif // BED_DETECTION
 	action_move_to_rest();
 }
 
@@ -634,6 +640,14 @@ void action_start_print()
 	PrintManager::single::instance().state(HOMING);
 #endif // DOGLCD
 	action_homing();
+	
+#ifdef BED_DETECTION
+	if(PrintManager::single::instance().getBedMissingFlag() == true)
+	{
+		PrintManager::single::instance().state(STOPPED);
+		return;
+	}
+#endif // BED_DETECTION
 
 	if (bed_leveling == true || (bed_leveling == false && AutoLevelManager::single::instance().state() == true))
 	{
@@ -671,7 +685,7 @@ void action_stop_print()
 {
 	plan_bed_level_matrix.set_to_identity();
 
-	flush_commands();
+	uint8_t num_ok = flush_commands();
 	stop_planner_buffer = true;
 	quickStop();
 
@@ -682,6 +696,7 @@ void action_stop_print()
 
 	if(card.isFileOpen() == true)
 	{
+		SERIAL_PROTOCOLLNPGM(MSG_FILE_PRINTED);
 		card.sdprinting = false;
 		card.closefile();
 	}
@@ -749,6 +764,10 @@ void action_stop_print()
 
 	if (SD_FINISHED_STEPPERRELEASE)
 	{
+		if(PrintManager::single::instance().state() == SERIAL_CONTROL)
+		{
+			enquecommand_P(PSTR("M801"));
+		}
 		enquecommand_P(PSTR(SD_FINISHED_RELEASECOMMAND));
 	}
 	// autotempShutdown();
@@ -763,6 +782,11 @@ void action_stop_print()
 		Time_t printTime = PrintManager::single::instance().printingTime();
 		StatsManager::single::instance().updateTotalTime(printTime);
 	#endif
+	
+	for(int i=0; i != num_ok; i++)
+	{
+		SERIAL_PROTOCOLLNPGM(MSG_OK);
+	}
 }
 
 void action_finish_print()
