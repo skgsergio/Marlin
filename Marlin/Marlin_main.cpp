@@ -376,6 +376,10 @@ bool cancel_heatup = false;
   int meas_delay_cm = MEASUREMENT_DELAY_CM;  //distance delay setting
 #endif //FILAMENT_SENSOR
 
+#ifdef FILAMENT_RUNOUT_SENSOR
+  static bool filrunoutEnqueued = false;
+#endif // FILAMENT_RUNOUT_SENSOR
+
 #ifdef ENABLE_AUTO_BED_LEVELING
   bool bed_leveling = true;
 #else
@@ -561,6 +565,17 @@ void setup_homepin(void)
 #endif
 }
 
+#ifdef FILAMENT_RUNOUT_SENSOR
+void setup_filrunoutpin()
+{
+  #if defined(FILRUNOUT_PIN) && FILRUNOUT_PIN > -1
+    SET_INPUT(FILRUNOUT_PIN);
+    #ifdef ENDSTOPPULLUP_FIL_RUNOUT
+      WRITE(FILRUNOUT_PIN, HIGH);
+    #endif // ENDSTOPPULLUP_FIL_RUNOUT
+  #endif
+}
+#endif // FILAMENT_RUNOUT_SENSOR
 
 void setup_photpin()
 {
@@ -632,6 +647,9 @@ void servo_init()
 void setup()
 {
   setup_killpin();
+  #ifdef FILAMENT_RUNOUT_SENSOR
+	setup_filrunoutpin();
+  #endif // FILAMENT_RUNOUT_SENSOR
   setup_powerhold();
   MYSERIAL.begin(BAUDRATE);
   delay(10);
@@ -829,6 +847,10 @@ void loop()
   PrintManager::updateInactivity();
 #endif //DOGCLD
 
+#ifdef FILAMENT_RUNOUT_SENSOR
+  checkRunoutSensor();
+#endif // FILAMENT_RUNOUT_SENSOR
+
 }
 
 void get_command()
@@ -872,7 +894,7 @@ void get_command()
           SERIAL_ERRORPGM(MSG_ERR_LINE_NO);
           SERIAL_ERRORLN(gcode_LastN);
           //Serial.println(gcode_N);
-          FlushSerialRequestResend();
+          FlushSerialRequestResendOk();
           serial_count = 0;
           return;
         }
@@ -890,7 +912,7 @@ void get_command()
             SERIAL_ERROR_START;
             SERIAL_ERRORPGM(MSG_ERR_CHECKSUM_MISMATCH);
             SERIAL_ERRORLN(gcode_LastN);
-            FlushSerialRequestResend();
+            FlushSerialRequestResendOk();
             serial_count = 0;
             return;
             }
@@ -902,7 +924,7 @@ void get_command()
           SERIAL_ERROR_START;
           SERIAL_ERRORPGM(MSG_ERR_NO_CHECKSUM);
           SERIAL_ERRORLN(gcode_LastN);
-          FlushSerialRequestResend();
+          FlushSerialRequestResendOk();
           serial_count = 0;
           return;
         }
@@ -1810,13 +1832,13 @@ void process_commands()
       starpos = (strchr(strchr_pointer + 4,'*'));
       if(starpos!=NULL)
       {
-		  if(*(starpos-1) == ' ') //solve repetier format problem
+		  if(*(starpos-1) == ' ')
 		  {
-			SERIAL_ECHOLN("wrong file format");
 			starpos--;
 		  }
         *(starpos)='\0';
        }
+      SERIAL_ECHO("file to open: "); SERIAL_ECHOLN(strchr_pointer + 4);
       card.openFile(strchr_pointer + 4,true);
       break;
     case 24: //M24 - Start SD print
@@ -1934,11 +1956,15 @@ void process_commands()
       break;
     case 28: //M28 - Start SD write
       starpos = (strchr(strchr_pointer + 4,'*'));
-      if(starpos != NULL){
-        char* npos = strchr(cmdbuffer[bufindr], 'N');
-        strchr_pointer = strchr(npos,' ') + 1;
-        *(starpos) = '\0';
+      if(starpos!=NULL)
+      {
+		  if(*(starpos-1) == ' ')
+		  {
+			starpos--;
+		  }
+        *(starpos)='\0';
       }
+      SERIAL_ECHO("file to open: "); SERIAL_ECHOLN(strchr_pointer + 4);
       card.openFile(strchr_pointer+4,false);
       break;
     case 29: //M29 - Stop SD write
@@ -1949,11 +1975,15 @@ void process_commands()
       if (card.cardOK){
         card.closefile();
         starpos = (strchr(strchr_pointer + 4,'*'));
-        if(starpos != NULL){
-          char* npos = strchr(cmdbuffer[bufindr], 'N');
-          strchr_pointer = strchr(npos,' ') + 1;
-          *(starpos) = '\0';
+        if(starpos!=NULL)
+        {
+		    if(*(starpos-1) == ' ')
+		    {
+			  starpos--;
+		    }
+          *(starpos)='\0';
         }
+			SERIAL_ECHO("file to open: "); SERIAL_ECHOLN(strchr_pointer + 4);
         card.removeFile(strchr_pointer + 4);
       }
       break;
@@ -1974,7 +2004,13 @@ void process_commands()
         namestartpos++; //to skip the '!'
 
       if(starpos!=NULL)
-        *(starpos)='\0';
+	  {
+		  if(*(starpos-1) == ' ')
+		  {
+		    starpos--;
+		  }
+	    *(starpos)='\0';
+  	  }
 
       bool call_procedure=(code_seen('P'));
 
@@ -1995,10 +2031,14 @@ void process_commands()
     case 928: //M928 - Start SD write
       starpos = (strchr(strchr_pointer + 5,'*'));
       if(starpos != NULL){
+		if(*(starpos-1) == ' ')
+		{
+		  starpos--;
+		}
         char* npos = strchr(cmdbuffer[bufindr], 'N');
-        strchr_pointer = strchr(npos,' ') + 1;
         *(starpos) = '\0';
       }
+      
       card.openLogFile(strchr_pointer+5);
       break;
 
@@ -2547,7 +2587,11 @@ Sigma_Exit:
         if (code_seen('S')){
 			if(code_value() > 0)
 			{
-				fanSpeed=255;
+				#if IS_RAMPS
+					fanSpeed = code_value();
+				#else
+					fanSpeed=255;
+				#endif
 			}
 			else
 			{
@@ -3687,6 +3731,10 @@ case 404:  //M404 Enter the nominal filament width (3mm, 1.75mm ) N<3.0> or disp
 #else
         ui::ViewManager::getInstance().activeView(ui::screen_change_pausing);
 #endif
+
+#ifdef FILAMENT_RUNOUT_SENSOR
+        filrunoutEnqueued = false;
+#endif
     }
     break;
     #endif //FILAMENTCHANGEENABLE
@@ -4029,7 +4077,12 @@ case 404:  //M404 Enter the nominal filament width (3mm, 1.75mm ) N<3.0> or disp
       break;
     case 710: // M710 Set the EEPROM and reset the board.
     {
-		  action_erase_EEPROM();
+		SERIAL_PROTOCOLLNPGM(MSG_OK);
+		#ifdef DOGLCD
+			ui::ViewManager::getInstance().activeView(ui::screen_reset);
+		#else
+			action_erase_EEPROM();
+		#endif // DOGLCD
     }
     break;
 
@@ -4250,6 +4303,16 @@ void FlushSerialRequestResend()
   SERIAL_PROTOCOLPGM(MSG_RESEND);
   SERIAL_PROTOCOLLN(gcode_LastN + 1);
   ClearToSend();
+}
+
+void FlushSerialRequestResendOk()
+{
+  //char cmdbuffer[bufindr][100]="Resend:";
+  MYSERIAL.flush();
+  SERIAL_PROTOCOLPGM(MSG_RESEND);
+  SERIAL_PROTOCOLLN(gcode_LastN + 1);
+  previous_millis_cmd = millis();
+  SERIAL_PROTOCOLLNPGM(MSG_OK);
 }
 
 void ClearToSend()
@@ -4673,6 +4736,13 @@ void handle_status_leds(void) {
 }
 #endif
 
+#ifdef FILAMENT_RUNOUT_SENSOR
+void checkRunoutSensor(){
+    if (IS_SD_PRINTING && (READ(FILRUNOUT_PIN) ^ FIL_RUNOUT_INVERTING))
+      filrunout();
+}
+#endif // FILAMENT_RUNOUT_SENSOR
+
 void manage_inactivity(bool ignore_stepper_queue/*=false*/) //default argument set in Marlin.h
 {
   
@@ -4984,3 +5054,14 @@ void wdt_init(void)
 void set_relative_mode(bool value){
   relative_mode = value;
 }
+
+
+#ifdef FILAMENT_RUNOUT_SENSOR
+void filrunout() {
+	if (!filrunoutEnqueued) {
+		filrunoutEnqueued = true;
+		enquecommand_P(PSTR(FILAMENT_RUNOUT_SCRIPT));
+		st_synchronize();
+	}
+}
+#endif // FILAMENT_RUNOUT_SENSOR
