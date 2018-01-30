@@ -1,3 +1,20 @@
+#  BQ Marlin v2.5.1
+---
+### Improvements:
+* Updated heated bed configuration on printer start. (H2)
+
+### Bugfixes:
+* Fixed hotend thermistor configuration. (H2)
+* Fixed interruption affecting serial printing. (H2)
+
+#  BQ Marlin v2.5.0
+---
+### Improvements:
+* Modified the PWM control of the hotend in standby. (H2/W2)
+
+### New hardware support:
+* Support for hephestos 2 heatedbed with automatic bed presence detection (H2).
+* Support for hephestos Zum heatedbed (HZ).
 
 #  BQ Marlin v2.4.0
 ---
